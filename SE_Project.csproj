@@ -23,4 +23,8 @@
     <Folder Include="Migrations\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include=".github\workflows\sonarcloud.yml" />
+  </ItemGroup>
+
 </Project>
