@@ -1,50 +1,56 @@
-name: SonarCloud Scan (DotNet)
+name: SonarCloud Analysis
 
 on:
-  push:
-    branches: [ master ]
   pull_request:
-    types: [opened, synchronize, reopened] # Triggers for PR
+    types: [opened, synchronize, reopened] # Triggers on PR creation/updates
+  push:
+    branches:
+      - master # Also analyzes the main branch for reference
 
 permissions:
-  contents: read # Default for checkout
-  pull-requests: write # <<< CRITICAL FOR PR DECORATION
-  security-events: write
+  contents: read
+  pull-requests: write # Allows SonarCloud to post comments and status checks
+  security-events: write # Allows SonarCloud to publish to Code Scanning Alerts (crucial!)
 
 jobs:
-  build:
-    name: Build and analyze .NET
-    runs-on: windows-latest 
-    
+  sonar_analysis:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          # Required for accurate Git/PR data for SonarCloud
+          # Shallow clones should be disabled for full analysis, especially for PRs
           fetch-depth: 0 
-
-      - name: Setup .NET
+      
+      - name:  Setup .NET and Java (required for dotnet-sonarscanner)
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
-
-      - name: Cache SonarCloud packages
-        uses: actions/cache@v4
+          dotnet-version: '8.0.x' # Or your required version
+      - uses: actions/setup-java@v4
         with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar
-
-      - name: Install SonarScanner for .NET
+          distribution: 'zulu'
+          java-version: '17' # Recommended Java version for SonarScanner
+          
+      # --- SonarScanner 3-Step Process for .NET ---
+      - name:  Install SonarScanner .NET tool
+        shell: bash
         run: dotnet tool install --global dotnet-sonarscanner
-
-      - name: Run Build and Sonar Analysis
+        
+      - name:  SonarScanner BEGIN
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} 
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          # The begin command automatically detects PR context from GitHub Actions environment variables
-          dotnet sonarscanner begin /k:"mibrahim83_SonarCloud-Test" /o:"mibrahim83" /d:sonar.host.url="https://sonarcloud.io"
-
-          # The build step is essential for .NET analysis
-          dotnet build --no-incremental
-
-          # End and upload results
-          dotnet sonarscanner end
+          dotnet sonarscanner begin \
+            /k:"mibrahim83_SonarCloud-Test" \
+            /o:"mibrahim83" \
+            /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.cs.roslyn.report=true # Recommended for C# analysis
+            
+      - name:  Build and Test
+        run: dotnet build --no-restore
+        
+      - name:  SonarScanner END
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
