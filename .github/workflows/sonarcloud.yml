@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read # Default for checkout
   pull-requests: write # <<< CRITICAL FOR PR DECORATION
+  security-events: write
 
 jobs:
   build:
