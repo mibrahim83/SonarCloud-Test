@@ -46,6 +46,10 @@ jobs:
             /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
             /d:sonar.host.url="https://sonarcloud.io" \
             /d:sonar.cs.roslyn.report=true # Recommended for C# analysis
+
+      - name:  Restore NuGet Packages
+      # This command finds all project files and restores their dependencies
+        run: dotnet restore
             
       - name:  Build and Test
         run: dotnet build --no-restore
