@@ -78,3 +78,57 @@
     exportButton.disabled = false;
     console.log(`Exported ${rows.length} rows to ${filename}`);
 }
+
+// --- BUG (S1128: Remove this unused 'import'. Code smell/Bug)
+import unusedLibrary from 'some-library';
+
+// --- SECURITY HOTSPOT (S5131: Allow-listing is recommended to prevent Server-Side Request Forgery)
+// This is a common pattern that SonarCloud flags for review.
+const http = require('http');
+function fetchData(url)
+{
+    http.get(url, (res) =>
+    {
+        // Sensitive: Fetching a URL directly from user input without validation/allow-listing
+        // SonarCloud will highlight this as a Security Hotspot needing review.
+        let data = '';
+        res.on('data', (chunk) =>
+        {
+            data += chunk;
+        });
+        res.on('end', () =>
+        {
+            console.log(data);
+        });
+    });
+}
+
+// --- VULNERABILITY (S5144: Cookies should be set with the "secure" flag)
+// This is an insecure use of cookies over HTTP (or non-secure in Node.js)
+const setCookie = (res, value) =>
+{
+    // Sensitive: Missing 'secure' flag and 'HttpOnly' flag
+    // SonarCloud will flag this as a Major Vulnerability.
+    res.setHeader('Set-Cookie', `session=${value}; Max-Age=3600`);
+}
+
+
+// --- BUG (S106: Throwing a string literal is a Bug/Code Smell)
+function processRequest(req, res)
+{
+    // Calling the sensitive functions
+    fetchData(req.query.url); // Assume req.query.url is user input
+    setCookie(res, 'my-session-token');
+
+    // Bug: Throwing a non-Error object
+    if (!req.query.id) {
+        throw "Missing required parameter.";
+    }
+}
+
+// Example usage to make the functions appear 'used'
+if (typeof window === 'undefined') {
+    const mockRes = { setHeader: (k, v) => console.log(`Setting header ${k}`) };
+    const mockReq = { query: { url: 'http://example.com' } };
+    processRequest(mockReq, mockRes);
+}
