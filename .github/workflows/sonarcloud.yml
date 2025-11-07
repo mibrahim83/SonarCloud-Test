@@ -1,25 +1,18 @@
-name: SonarCloud Scan (DotNet)
+name: SonarCloud Scan
 
 on:
   push:
     branches: [ master ]
   pull_request:
-    types: [opened, synchronize, reopened] # Triggers for PR
-
-permissions:
-  contents: read # Default for checkout
-  pull-requests: write # <<< CRITICAL FOR PR DECORATION
+    types: [opened, synchronize, reopened]
 
 jobs:
   build:
-    name: Build and analyze .NET
-    runs-on: windows-latest 
-    
+    name: Build and analyze
+    runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Required for accurate Git/PR data for SonarCloud
-          fetch-depth: 0 
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -32,18 +25,13 @@ jobs:
           path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar
 
-      - name: Install SonarScanner for .NET
+      - name: Install SonarScanner
         run: dotnet tool install --global dotnet-sonarscanner
 
-      - name: Run Build and Sonar Analysis
+      - name: Build and analyze
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }} 
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          # The begin command automatically detects PR context from GitHub Actions environment variables
-          dotnet sonarscanner begin /k:"mibrahim83_SonarCloud-Test" /o:"mibrahim83" /d:sonar.host.url="https://sonarcloud.io"
-
-          # The build step is essential for .NET analysis
-          dotnet build --no-incremental
-
-          # End and upload results
-          dotnet sonarscanner end
+            dotnet sonarscanner begin /k:"mibrahim83_SonarCloud-Test" /o:"mibrahim83" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io"
+            dotnet build
+            dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
