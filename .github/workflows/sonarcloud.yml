@@ -1,60 +1,37 @@
-name: SonarCloud Analysis
+name: SonarCloud Scan
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened] # Triggers on PR creation/updates
   push:
-    branches:
-      - master # Also analyzes the main branch for reference
-
-permissions:
-  contents: read
-  pull-requests: write # Allows SonarCloud to post comments and status checks
-  security-events: write # Allows SonarCloud to publish to Code Scanning Alerts (crucial!)
+    branches: [ master ]
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
-  sonar_analysis:
-    runs-on: ubuntu-latest
+  build:
+    name: Build and analyze
+    runs-on: windows-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          # Shallow clones should be disabled for full analysis, especially for PRs
-          fetch-depth: 0 
-      
-      - name:  Setup .NET and Java (required for dotnet-sonarscanner)
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x' # Or your required version
-      - uses: actions/setup-java@v4
+          dotnet-version: '8.0.x'
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
         with:
-          distribution: 'zulu'
-          java-version: '17' # Recommended Java version for SonarScanner
-          
-      # --- SonarScanner 3-Step Process for .NET ---
-      - name:  Install SonarScanner .NET tool
-        shell: bash
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+
+      - name: Install SonarScanner
         run: dotnet tool install --global dotnet-sonarscanner
-        
-      - name:  SonarScanner BEGIN
+
+      - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          dotnet sonarscanner begin \
-            /k:"mibrahim83_SonarCloud-Test" \
-            /o:"mibrahim83" \
-            /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
-            /d:sonar.host.url="https://sonarcloud.io" \
-            /d:sonar.cs.roslyn.report=true # Recommended for C# analysis
-
-      - name:  Restore NuGet Packages
-      # This command finds all project files and restores their dependencies
-        run: dotnet restore
-            
-      - name:  Build and Test
-        run: dotnet build --no-restore
-        
-      - name:  SonarScanner END
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+            dotnet sonarscanner begin /k:"mibrahim83_SonarCloud-Test" /o:"mibrahim83" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io"
+            dotnet build
+            dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
