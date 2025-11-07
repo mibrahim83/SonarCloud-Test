@@ -132,3 +132,74 @@ if (typeof window === 'undefined') {
     const mockReq = { query: { url: 'http://example.com' } };
     processRequest(mockReq, mockRes);
 }
+
+// A simple Express server setup to simulate a real-world vulnerable endpoint
+const express = require('express');
+const app = express();
+const fs = require('fs');
+
+// --- BLOCKER BUG (S106: Throwing a string literal)
+// Sonar flags this as a Bug that can halt execution in unexpected ways.
+function validateInput(input)
+{
+    if (!input) {
+        throw "Input cannot be null or undefined."; // S106: Throwing a string literal is a Blocker Bug in many profiles
+    }
+}
+
+// --- CRITICAL VULNERABILITY (S5147: Path Traversal)
+// A high-risk security flaw. Data flows from request (source) to file system read (sink) without sanitization.
+app.get('/file', (req, res) =>
+{
+    // Tainted source: req.query.filename
+    let fileName = req.query.filename;
+
+    // Sink: Reading a file based on unvalidated user input. This leads to Path Traversal.
+    // SonarCloud typically flags this as a Critical or Blocker Vulnerability.
+    try {
+        validateInput(fileName);
+        const data = fs.readFileSync(fileName); // S5147: OS file access should not be vulnerable to path traversal attacks
+        res.send(data.toString());
+    } catch (e) {
+        res.status(500).send('Error processing file.');
+    }
+});
+
+// --- CRITICAL VULNERABILITY (S5131: Server-Side Request Forgery - SSRF)
+// Another high-risk security flaw.
+const http = require('http');
+app.get('/fetch', (req, res) =>
+{
+    // Tainted source: req.query.url
+    const url = req.query.url;
+
+    // Sink: Making an HTTP request to an unvalidated URL provided by the user.
+    // This allows an attacker to make the server request internal resources (SSRF).
+    http.get(url, (apiRes) =>
+    { // S5131: Server-side requests should not be vulnerable to forgery attacks.
+        let data = '';
+        apiRes.on('data', (chunk) => { data += chunk; });
+        apiRes.on('end', () => res.send(data));
+    }).on('error', (err) =>
+    {
+        res.status(500).send('Error fetching URL.');
+    });
+});
+
+// Start the server (just for code completeness, won't actually run in GH Actions)
+app.listen(3000, () =>
+{
+    console.log('App running on port 3000');
+});
+
+// You'll also need a package.json file to satisfy the 'require' calls
+// Just having a simple package.json with express and fs (built-in) will work:
+/*
+{
+  "name": "critical-test",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.18.2" 
+  }
+}
+*/
