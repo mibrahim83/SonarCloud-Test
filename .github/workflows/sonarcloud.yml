@@ -44,6 +44,7 @@ jobs:
       - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           dotnet sonarscanner begin \
             /k:"mibrahim83_SonarCloud-Test" \
@@ -51,6 +52,7 @@ jobs:
             /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
             /d:sonar.host.url="https://sonarcloud.io" \
             /d:sonar.analysisCache.enabled=true \
+            /d:sonar.pullrequest.base=master \
             /d:sonar.dotnet.excludeTestProjects=true
-          dotnet build --no-restore --configuration Release --parallel
+          dotnet build --no-restore --configuration Release  # Removed --parallel
           dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
