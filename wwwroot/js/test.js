@@ -266,3 +266,15 @@ app.get('/file-read', (req, res) =>
         res.status(500).send('Error reading file.');
     }
 });
+
+app.get('/file-read', (req, res) =>
+{
+    let fileName = req.query.filename;
+    // CRITICAL VULNERABILITY: Path Traversal (S5147)
+    try {
+        const data = fs.readFileSync(fileName);
+        res.send(data.toString());
+    } catch (e) {
+        res.status(500).send('Error reading file.');
+    }
+});
