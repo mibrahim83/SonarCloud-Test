@@ -39,31 +39,32 @@ jobs:
           
           CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD)
           
-          # Check for .NET file changes (including .cshtml!)
+          # Check for .NET file changes
           DOTNET_CHANGED=$(echo "$CHANGED_FILES" | grep -E '\.(cs|csproj|sln|razor|cshtml)$' || echo "")
           
           if [ -n "$DOTNET_CHANGED" ]; then
             echo "dotnet_changed=true" >> $GITHUB_OUTPUT
             echo ".NET files changed - build required"
             
-            # Find specific .csproj files
-            CHANGED_PROJECTS=$(echo "$DOTNET_CHANGED" | grep "\.csproj$")
+            # Find specific .csproj files that changed
+            CHANGED_PROJECTS=$(echo "$DOTNET_CHANGED" | grep "\.csproj$" || echo "")
             
-            # If no .csproj changed, find projects containing changed .cs/.cshtml files
+            # If no .csproj directly changed, find projects containing changed files
             if [ -z "$CHANGED_PROJECTS" ]; then
-              # For changed .cs/.cshtml files, find their containing .csproj
-              # Look for .csproj in parent directories
+              # Use find command to safely locate .csproj files
               for file in $DOTNET_CHANGED; do
                 dir=$(dirname "$file")
                 while [ "$dir" != "." ]; do
-                  if [ -f "$dir"/*.csproj ]; then
-                    proj=$(ls "$dir"/*.csproj)
+                  # SAFER: Use find instead of wildcard with -f
+                  proj=$(find "$dir" -maxdepth 1 -name "*.csproj" -print -quit 2>/dev/null)
+                  if [ -n "$proj" ]; then
                     CHANGED_PROJECTS="$CHANGED_PROJECTS $proj"
                     break
                   fi
                   dir=$(dirname "$dir")
                 done
               done
+              # Remove duplicates
               CHANGED_PROJECTS=$(echo "$CHANGED_PROJECTS" | tr ' ' '\n' | sort -u)
             fi
             
@@ -97,3 +98,4 @@ jobs:
             -Dsonar.organization=mibrahim83
             -Dsonar.exclusions=**/Migrations/**
             -Dsonar.dotnet.excludeTestProjects=true
+            -Dsonar.analysisCache.enabled=true
