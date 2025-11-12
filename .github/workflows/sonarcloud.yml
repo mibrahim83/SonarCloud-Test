@@ -7,19 +7,19 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  build:
+  sonarcloud:
     name: Build and analyze
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # 2-3x faster than Windows
     
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Required for accurate analysis
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '8.0.x'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -28,39 +28,20 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.sln') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      - name: Cache SonarCloud packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-sonar-
-
       - name: Restore dependencies
         run: dotnet restore
 
-      - name: Install SonarScanner
-        run: dotnet tool install --global dotnet-sonarscanner
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
 
-      # Single-line conditional parameters (cleaner)
-      - name: Build and analyze
+      - name: SonarCloud Scan
+        uses: sonarsource/sonarcloud-github-action@v3
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          PR_KEY="${{ github.event.number }}"
-          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
-          PR_BASE="${{ github.event.pull_request.base.ref }}"
-          [ -n "$PR_KEY" ] && PR_ARGS="/d:sonar.pullrequest.key=$PR_KEY /d:sonar.pullrequest.branch=$PR_BRANCH /d:sonar.pullrequest.base=$PR_BASE" || PR_ARGS=""
-          
-          dotnet sonarscanner begin \
-            /k:"mibrahim83_SonarCloud-Test" \
-            /o:"mibrahim83" \
-            /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
-            /d:sonar.host.url="https://sonarcloud.io" \
-            /d:sonar.analysisCache.enabled=true \
-            /d:sonar.scanner.skipJreProvisioning=true \
-            /d:sonar.dotnet.excludeTestProjects=true \
-            /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**" \
-            $PR_ARGS
-          
-          dotnet build --no-restore --configuration Release
-          dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+        with:
+          args: >
+            -Dsonar.projectKey=mibrahim83_SonarCloud-Test
+            -Dsonar.organization=mibrahim83
+            -Dsonar.exclusions=**/Migrations/**,**/obj/**,**/bin/**
+            -Dsonar.dotnet.excludeTestProjects=true
+            -Dsonar.coverage.exclusions=**Tests*/**
