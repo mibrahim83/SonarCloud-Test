@@ -44,5 +44,4 @@ jobs:
             -Dsonar.organization=mibrahim83
             -Dsonar.exclusions=**/Migrations/**,**/obj/**,**/bin/**
             -Dsonar.dotnet.excludeTestProjects=true
-            -Dsonar.analysisCache.enabled=true
             -Dsonar.coverage.exclusions=**Tests*/**
