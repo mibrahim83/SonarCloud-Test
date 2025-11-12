@@ -9,31 +9,31 @@ on:
 jobs:
   build:
     name: Build and analyze
-    runs-on: ubuntu-latest  # Faster and cheaper than Windows
+    runs-on: ubuntu-latest
     
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for accurate blame/PR data
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'  # Update to match your actual SDK
+          dotnet-version: '9.0.x'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.sln') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
+          restore-keys: ${{ runner.os }}-nuget-
 
       - name: Cache SonarCloud packages
         uses: actions/cache@v4
         with:
           path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar
+          key: ${{ runner.os }}-sonar-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-sonar-
 
       - name: Restore dependencies
         run: dotnet restore
@@ -41,17 +41,15 @@ jobs:
       - name: Install SonarScanner
         run: dotnet tool install --global dotnet-sonarscanner
 
+      # Single-line conditional parameters (cleaner)
       - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            PR_PARAMS="/d:sonar.pullrequest.key=${{ github.event.number }} \
-                       /d:sonar.pullrequest.branch=${{ github.event.pull_request.head.ref }} \
-                       /d:sonar.pullrequest.base=${{ github.event.pull_request.base.ref }}"
-          else
-            PR_PARAMS=""
-          fi
+          PR_KEY="${{ github.event.number }}"
+          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+          PR_BASE="${{ github.event.pull_request.base.ref }}"
+          [ -n "$PR_KEY" ] && PR_ARGS="/d:sonar.pullrequest.key=$PR_KEY /d:sonar.pullrequest.branch=$PR_BRANCH /d:sonar.pullrequest.base=$PR_BASE" || PR_ARGS=""
           
           dotnet sonarscanner begin \
             /k:"mibrahim83_SonarCloud-Test" \
@@ -61,7 +59,8 @@ jobs:
             /d:sonar.analysisCache.enabled=true \
             /d:sonar.scanner.skipJreProvisioning=true \
             /d:sonar.dotnet.excludeTestProjects=true \
-            $PR_PARAMS
+            /d:sonar.exclusions="**/Migrations/**,**/obj/**,**/bin/**" \
+            $PR_ARGS
           
           dotnet build --no-restore --configuration Release
           dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
