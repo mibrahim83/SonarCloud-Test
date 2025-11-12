@@ -9,17 +9,17 @@ on:
 jobs:
   sonarcloud:
     name: Build and analyze
-    runs-on: ubuntu-latest  # 2-3x faster than Windows
+    runs-on: ubuntu-latest
     
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for accurate analysis
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '9.0.x'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -28,15 +28,63 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.sln') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      - name: Restore dependencies
+      - name: Cache Build Output
+        uses: actions/cache@v4
+        with:
+          path: |
+            **/obj/**
+            **/bin/**
+          key: build-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.sln') }}-${{ github.event.pull_request.base.sha || github.event.before }}
+          restore-keys: |
+            build-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.sln') }}
+
+      - name: Detect Changed Projects
+        id: changed-projects
+        run: |
+          # Get list of changed .csproj files
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+          
+          # Find changed .csproj files (fuzzy match if .cs files changed)
+          CHANGED_PROJECTS=$(git diff --name-only $BASE_SHA HEAD | grep -E '\.(cs|csproj)$' | xargs -I {} dirname {} | sort -u | grep -E '.*\.csproj$' || true)
+          
+          # If no .csproj directly changed, check if any .cs files changed and map to their projects
+          if [ -z "$CHANGED_PROJECTS" ]; then
+            CHANGED_CS=$(git diff --name-only $BASE_SHA HEAD | grep '\.cs$' || true)
+            if [ -n "$CHANGED_CS" ]; then
+              # Find which .csproj files contain the changed .cs files
+              CHANGED_PROJECTS=$(echo "$CHANGED_CS" | xargs -I {} sh -c 'find . -name "*.csproj" -exec grep -l "{}" {} \;' | sort -u)
+            fi
+          fi
+          
+          # Default to solution file if nothing detected
+          if [ -z "$CHANGED_PROJECTS" ]; then
+            echo "projects=" >> $GITHUB_OUTPUT
+          else
+            echo "projects=$(echo "$CHANGED_PROJECTS" | tr '\n' ' ')" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore Dependencies
         run: dotnet restore
 
-      - name: Build
-        run: dotnet build --no-restore --configuration Release
+      - name: Build Changed Projects Only
+        run: |
+          PROJECTS="${{ steps.changed-projects.outputs.projects }}"
+          if [ -n "$PROJECTS" ]; then
+            echo "Building specific projects: $PROJECTS"
+            echo "$PROJECTS" | tr ' ' '\n' | xargs -I {} dotnet build {} --configuration Release --no-restore
+          else
+            echo "No specific projects detected, building entire solution"
+            dotnet build --configuration Release --no-restore
+          fi
 
       - name: SonarCloud Scan
         uses: sonarsource/sonarcloud-github-action@v3
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
@@ -44,5 +92,5 @@ jobs:
             -Dsonar.organization=mibrahim83
             -Dsonar.exclusions=**/Migrations/**,**/obj/**,**/bin/**
             -Dsonar.dotnet.excludeTestProjects=true
-            -Dsonar.coverage.exclusions=**Tests*/**
+            -Dsonar.coverage.exclusions=**Tests*/
             -Dsonar.analysisCache.enabled=true
