@@ -19,5 +19,6 @@ namespace SE_Project.Models
 
         [Required(ErrorMessage = "The Roll No field is required.")]
         public string RollNo { get; set; }
+        public string gmail { get; set; }
     }
 }

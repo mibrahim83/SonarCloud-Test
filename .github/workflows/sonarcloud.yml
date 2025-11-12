@@ -1,4 +1,4 @@
-name: SonarCloud Fast Scan
+name: SonarCloud Scan
 
 on:
   push:
@@ -14,83 +14,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Required for PR analysis
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
 
-      - name: Cache NuGet packages
+      - name: Cache NuGet Packages
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.sln') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      - name: Determine Build Strategy
-        id: build-strategy
+      - name: Restore & Build
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          else
-            BASE_SHA="${{ github.event.before }}"
-          fi
-          
-          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD)
-          
-          # Check for .NET file changes
-          DOTNET_CHANGED=$(echo "$CHANGED_FILES" | grep -E '\.(cs|csproj|sln|razor|cshtml)$' || echo "")
-          
-          if [ -n "$DOTNET_CHANGED" ]; then
-            echo "dotnet_changed=true" >> $GITHUB_OUTPUT
-            echo ".NET files changed - build required"
-            
-            # Find specific .csproj files that changed
-            CHANGED_PROJECTS=$(echo "$DOTNET_CHANGED" | grep "\.csproj$" || echo "")
-            
-            # If no .csproj directly changed, find projects containing changed files
-            if [ -z "$CHANGED_PROJECTS" ]; then
-              # Use find command to safely locate .csproj files
-              for file in $DOTNET_CHANGED; do
-                dir=$(dirname "$file")
-                while [ "$dir" != "." ]; do
-                  # SAFER: Use find instead of wildcard with -f
-                  proj=$(find "$dir" -maxdepth 1 -name "*.csproj" -print -quit 2>/dev/null)
-                  if [ -n "$proj" ]; then
-                    CHANGED_PROJECTS="$CHANGED_PROJECTS $proj"
-                    break
-                  fi
-                  dir=$(dirname "$dir")
-                done
-              done
-              # Remove duplicates
-              CHANGED_PROJECTS=$(echo "$CHANGED_PROJECTS" | tr ' ' '\n' | sort -u)
-            fi
-            
-            echo "projects=$(echo "$CHANGED_PROJECTS" | tr '\n' ' ')" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Restore Dependencies
-        if: steps.build-strategy.outputs.dotnet_changed == 'true'
-        run: dotnet restore
-
-      - name: Build
-        if: steps.build-strategy.outputs.dotnet_changed == 'true'
-        run: |
-          PROJECTS="${{ steps.build-strategy.outputs.projects }}"
-          if [ -n "$PROJECTS" ]; then
-            echo "Building: $PROJECTS"
-            echo "$PROJECTS" | tr ' ' '\n' | xargs -I {} dotnet build {} --configuration Release --no-restore
-          else
-            echo "Building solution"
-            dotnet build --configuration Release --no-restore
-          fi
+          dotnet restore
+          dotnet build --no-restore --configuration Release --verbosity quiet
 
       - name: SonarCloud Scan
         uses: sonarsource/sonarcloud-github-action@v3
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
@@ -98,4 +43,5 @@ jobs:
             -Dsonar.organization=mibrahim83
             -Dsonar.exclusions=**/Migrations/**
             -Dsonar.dotnet.excludeTestProjects=true
-            -Dsonar.analysisCache.enabled=true
+            -Dsonar.coverage.exclusions=**Tests*/
+            -Dsonar.analysisCache.enabled=true 
