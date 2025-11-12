@@ -28,64 +28,77 @@ jobs:
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.sln') }}
           restore-keys: ${{ runner.os }}-nuget-
 
-      - name: Cache Build Output
-        uses: actions/cache@v4
-        with:
-          path: |
-            **/obj/**
-            **/bin/**
-          key: build-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.sln') }}-${{ github.event.pull_request.base.sha || github.event.before }}
-          restore-keys: |
-            build-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.sln') }}
-
-      - name: Detect Changed Projects
-        id: changed-projects
+      - name: Determine Build Strategy
+        id: build-strategy
         run: |
-          # Get list of changed .csproj files
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
           else
             BASE_SHA="${{ github.event.before }}"
           fi
           
-          # Find changed .csproj files (fuzzy match if .cs files changed)
-          CHANGED_PROJECTS=$(git diff --name-only $BASE_SHA HEAD | grep -E '\.(cs|csproj)$' | xargs -I {} dirname {} | sort -u | grep -E '.*\.csproj$' || true)
+          # Get all changed files
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD || git diff --name-only HEAD~1 HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
           
-          # If no .csproj directly changed, check if any .cs files changed and map to their projects
-          if [ -z "$CHANGED_PROJECTS" ]; then
-            CHANGED_CS=$(git diff --name-only $BASE_SHA HEAD | grep '\.cs$' || true)
-            if [ -n "$CHANGED_CS" ]; then
-              # Find which .csproj files contain the changed .cs files
-              CHANGED_PROJECTS=$(echo "$CHANGED_CS" | xargs -I {} sh -c 'find . -name "*.csproj" -exec grep -l "{}" {} \;' | sort -u)
+          # Check if any .NET files changed
+          DOTNET_CHANGED=$(echo "$CHANGED_FILES" | grep -E '\.(cs|csproj|sln|razor|cshtml)$' || true)
+          
+          # Check if any front-end files changed
+          FRONTEND_CHANGED=$(echo "$CHANGED_FILES" | grep -E '\.(js|css|html|ts|scss|svg|png|jpg)$' || true)
+          
+          if [ -n "$DOTNET_CHANGED" ]; then
+            echo "dotnet_changed=true" >> $GITHUB_OUTPUT
+            echo ".NET files changed - build required"
+            
+            # Find specific .csproj files that changed
+            CHANGED_PROJECTS=$(echo "$DOTNET_CHANGED" | grep "\.csproj$" || true)
+            if [ -z "$CHANGED_PROJECTS" ]; then
+              # No .csproj changed, but .cs files did - find which projects they belong to
+              CHANGED_CS=$(echo "$DOTNET_CHANGED" | grep "\.cs$" || true)
+              if [ -n "$CHANGED_CS" ]; then
+                CHANGED_PROJECTS=$(echo "$CHANGED_CS" | xargs -I {} sh -c 'find . -name "*.csproj" -exec grep -l "{}" {} \;' 2>/dev/null | sort -u || true)
+              fi
             fi
-          fi
-          
-          # Default to solution file if nothing detected
-          if [ -z "$CHANGED_PROJECTS" ]; then
-            echo "projects=" >> $GITHUB_OUTPUT
-          else
+            
             echo "projects=$(echo "$CHANGED_PROJECTS" | tr '\n' ' ')" >> $GITHUB_OUTPUT
+            
+          elif [ -n "$FRONTEND_CHANGED" ]; then
+            echo "dotnet_changed=false" >> $GITHUB_OUTPUT
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            echo "Only front-end files changed - skipping .NET build"
+          else
+            echo "dotnet_changed=false" >> $GITHUB_OUTPUT
+            echo "frontend_changed=false" >> $GITHUB_OUTPUT
+            echo "No code changes - minimal build"
           fi
 
       - name: Restore Dependencies
+        if: steps.build-strategy.outputs.dotnet_changed == 'true'
         run: dotnet restore
 
-      - name: Build Changed Projects Only
+      - name: Build Changed .NET Projects
+        if: steps.build-strategy.outputs.dotnet_changed == 'true'
         run: |
-          PROJECTS="${{ steps.changed-projects.outputs.projects }}"
+          PROJECTS="${{ steps.build-strategy.outputs.projects }}"
           if [ -n "$PROJECTS" ]; then
             echo "Building specific projects: $PROJECTS"
             echo "$PROJECTS" | tr ' ' '\n' | xargs -I {} dotnet build {} --configuration Release --no-restore
           else
-            echo "No specific projects detected, building entire solution"
+            echo "No specific projects detected, building solution"
             dotnet build --configuration Release --no-restore
           fi
+
+      - name: Skip .NET Build (Front-end only)
+        if: steps.build-strategy.outputs.dotnet_changed != 'true'
+        run: echo "Skipping .NET build - only front-end files changed"
 
       - name: SonarCloud Scan
         uses: sonarsource/sonarcloud-github-action@v3
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: >
             -Dsonar.projectKey=mibrahim83_SonarCloud-Test
