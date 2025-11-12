@@ -1,5 +1,4 @@
 name: SonarCloud Scan
-
 on:
   push:
     branches: [ master ]
@@ -9,21 +8,35 @@ on:
 jobs:
   build:
     name: Build and analyze
-    runs-on: windows-latest
-
+    runs-on: ubuntu-latest  # Switch to Linux
+    
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Important for accurate blame data
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.sln') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Cache SonarCloud packages
         uses: actions/cache@v4
         with:
           path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Restore dependencies
+        run: dotnet restore
 
       - name: Install SonarScanner
         run: dotnet tool install --global dotnet-sonarscanner
@@ -32,5 +45,12 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-            dotnet sonarscanner begin /k:"mibrahim83_SonarCloud-Test" /o:"mibrahim83" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.host.url="https://sonarcloud.io"
-            dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          dotnet sonarscanner begin \
+            /k:"mibrahim83_SonarCloud-Test" \
+            /o:"mibrahim83" \
+            /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.analysisCache.enabled=true \
+            /d:sonar.dotnet.excludeTestProjects=true
+          dotnet build --no-restore --configuration Release --parallel
+          dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
