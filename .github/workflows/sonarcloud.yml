@@ -38,6 +38,7 @@ jobs:
         uses: sonarsource/sonarcloud-github-action@v3
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: >
             -Dsonar.projectKey=mibrahim83_SonarCloud-Test

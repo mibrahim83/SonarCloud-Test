@@ -149,3 +149,38 @@ app.get('/file-read', (req, res) =>
         res.status(500).send('Error reading file.');
     }
 });
+
+// --- HIGH: Array.sort() without compare function (S1216)
+function sortData(data)
+{
+    // High Severity: Array.sort() on numbers without a compare function leads to incorrect sorting.
+    data.sort();
+    return data;
+}
+
+// --- HIGH: 'await' without a Promise (S4119)
+async function checkAwait()
+{
+    let result;
+
+    // High Severity: Awaiting a non-Promise value. 
+    // This is essentially a no-op but is flagged as incorrect usage.
+    result = await 5;
+
+    return result;
+}
+
+
+// --- Guaranteed CRITICAL/BLOCKER VULNERABILITY (from previous response)
+// These are often needed to guarantee inline decoration.
+app.get('/file-read', (req, res) =>
+{
+    let fileName = req.query.filename;
+    // CRITICAL VULNERABILITY: Path Traversal (S5147)
+    try {
+        const data = fs.readFileSync(fileName);
+        res.send(data.toString());
+    } catch (e) {
+        res.status(500).send('Error reading file.');
+    }
+});
