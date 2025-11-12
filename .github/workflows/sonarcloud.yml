@@ -1,4 +1,5 @@
 name: SonarCloud Scan
+
 on:
   push:
     branches: [ master ]
@@ -8,17 +9,17 @@ on:
 jobs:
   build:
     name: Build and analyze
-    runs-on: ubuntu-latest  # Switch to Linux
+    runs-on: ubuntu-latest  # Faster and cheaper than Windows
     
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Important for accurate blame data
+          fetch-depth: 0  # Required for accurate blame/PR data
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '9.0.x'  # Update to match your actual SDK
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -33,7 +34,6 @@ jobs:
         with:
           path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar
-          restore-keys: ${{ runner.os }}-sonar
 
       - name: Restore dependencies
         run: dotnet restore
@@ -44,15 +44,24 @@ jobs:
       - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PR_PARAMS="/d:sonar.pullrequest.key=${{ github.event.number }} \
+                       /d:sonar.pullrequest.branch=${{ github.event.pull_request.head.ref }} \
+                       /d:sonar.pullrequest.base=${{ github.event.pull_request.base.ref }}"
+          else
+            PR_PARAMS=""
+          fi
+          
           dotnet sonarscanner begin \
             /k:"mibrahim83_SonarCloud-Test" \
             /o:"mibrahim83" \
             /d:sonar.token="${{ secrets.SONAR_TOKEN }}" \
             /d:sonar.host.url="https://sonarcloud.io" \
             /d:sonar.analysisCache.enabled=true \
-            /d:sonar.pullrequest.base=master \
-            /d:sonar.dotnet.excludeTestProjects=true
-          dotnet build --no-restore --configuration Release  # Removed --parallel
+            /d:sonar.scanner.skipJreProvisioning=true \
+            /d:sonar.dotnet.excludeTestProjects=true \
+            $PR_PARAMS
+          
+          dotnet build --no-restore --configuration Release
           dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
