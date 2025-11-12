@@ -1,4 +1,4 @@
-name: SonarCloud Scan
+name: SonarCloud Fast Scan
 
 on:
   push:
@@ -37,73 +37,63 @@ jobs:
             BASE_SHA="${{ github.event.before }}"
           fi
           
-          # Get all changed files
-          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD || git diff --name-only HEAD~1 HEAD)
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA HEAD)
           
-          # Check if any .NET files changed
-          DOTNET_CHANGED=$(echo "$CHANGED_FILES" | grep -E '\.(cs|csproj|sln|razor|cshtml)$' || true)
-          
-          # Check if any front-end files changed
-          FRONTEND_CHANGED=$(echo "$CHANGED_FILES" | grep -E '\.(js|css|html|ts|scss|svg|png|jpg)$' || true)
+          # Check for .NET file changes (including .cshtml!)
+          DOTNET_CHANGED=$(echo "$CHANGED_FILES" | grep -E '\.(cs|csproj|sln|razor|cshtml)$' || echo "")
           
           if [ -n "$DOTNET_CHANGED" ]; then
             echo "dotnet_changed=true" >> $GITHUB_OUTPUT
             echo ".NET files changed - build required"
             
-            # Find specific .csproj files that changed
-            CHANGED_PROJECTS=$(echo "$DOTNET_CHANGED" | grep "\.csproj$" || true)
+            # Find specific .csproj files
+            CHANGED_PROJECTS=$(echo "$DOTNET_CHANGED" | grep "\.csproj$")
+            
+            # If no .csproj changed, find projects containing changed .cs/.cshtml files
             if [ -z "$CHANGED_PROJECTS" ]; then
-              # No .csproj changed, but .cs files did - find which projects they belong to
-              CHANGED_CS=$(echo "$DOTNET_CHANGED" | grep "\.cs$" || true)
-              if [ -n "$CHANGED_CS" ]; then
-                CHANGED_PROJECTS=$(echo "$CHANGED_CS" | xargs -I {} sh -c 'find . -name "*.csproj" -exec grep -l "{}" {} \;' 2>/dev/null | sort -u || true)
-              fi
+              # For changed .cs/.cshtml files, find their containing .csproj
+              # Look for .csproj in parent directories
+              for file in $DOTNET_CHANGED; do
+                dir=$(dirname "$file")
+                while [ "$dir" != "." ]; do
+                  if [ -f "$dir"/*.csproj ]; then
+                    proj=$(ls "$dir"/*.csproj)
+                    CHANGED_PROJECTS="$CHANGED_PROJECTS $proj"
+                    break
+                  fi
+                  dir=$(dirname "$dir")
+                done
+              done
+              CHANGED_PROJECTS=$(echo "$CHANGED_PROJECTS" | tr ' ' '\n' | sort -u)
             fi
             
             echo "projects=$(echo "$CHANGED_PROJECTS" | tr '\n' ' ')" >> $GITHUB_OUTPUT
-            
-          elif [ -n "$FRONTEND_CHANGED" ]; then
-            echo "dotnet_changed=false" >> $GITHUB_OUTPUT
-            echo "frontend_changed=true" >> $GITHUB_OUTPUT
-            echo "Only front-end files changed - skipping .NET build"
-          else
-            echo "dotnet_changed=false" >> $GITHUB_OUTPUT
-            echo "frontend_changed=false" >> $GITHUB_OUTPUT
-            echo "No code changes - minimal build"
           fi
 
       - name: Restore Dependencies
         if: steps.build-strategy.outputs.dotnet_changed == 'true'
         run: dotnet restore
 
-      - name: Build Changed .NET Projects
+      - name: Build
         if: steps.build-strategy.outputs.dotnet_changed == 'true'
         run: |
           PROJECTS="${{ steps.build-strategy.outputs.projects }}"
           if [ -n "$PROJECTS" ]; then
-            echo "Building specific projects: $PROJECTS"
+            echo "Building: $PROJECTS"
             echo "$PROJECTS" | tr ' ' '\n' | xargs -I {} dotnet build {} --configuration Release --no-restore
           else
-            echo "No specific projects detected, building solution"
+            echo "Building solution"
             dotnet build --configuration Release --no-restore
           fi
-
-      - name: Skip .NET Build (Front-end only)
-        if: steps.build-strategy.outputs.dotnet_changed != 'true'
-        run: echo "Skipping .NET build - only front-end files changed"
 
       - name: SonarCloud Scan
         uses: sonarsource/sonarcloud-github-action@v3
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >
             -Dsonar.projectKey=mibrahim83_SonarCloud-Test
             -Dsonar.organization=mibrahim83
-            -Dsonar.exclusions=**/Migrations/**,**/obj/**,**/bin/**
+            -Dsonar.exclusions=**/Migrations/**
             -Dsonar.dotnet.excludeTestProjects=true
-            -Dsonar.coverage.exclusions=**Tests*/
-            -Dsonar.analysisCache.enabled=true
