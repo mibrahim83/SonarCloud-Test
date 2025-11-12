@@ -45,3 +45,4 @@ jobs:
             -Dsonar.exclusions=**/Migrations/**,**/obj/**,**/bin/**
             -Dsonar.dotnet.excludeTestProjects=true
             -Dsonar.coverage.exclusions=**Tests*/**
+            -Dsonar.analysisCache.enabled=true
